@@ -255,14 +255,18 @@ export const store = {
   },
 };
 
+import { useState, useEffect } from "react";
+
 export function useStoreVersion() {
-  const [v, setV] = useStateImport();
-  useEffectImport(() => store.subscribe(() => setV((n) => n + 1)), []);
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    const unsub = store.subscribe(() => setV((n) => n + 1));
+    return () => {
+      unsub();
+    };
+  }, []);
   return v;
 }
-
-// dynamic import-friendly hook stubs
-import { useState as useStateImport, useEffect as useEffectImport } from "react";
 
 export function newId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
