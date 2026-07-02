@@ -4,24 +4,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { store } from "@/lib/mock-store";
+import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
-  component: () => (
-    <AuthProvider>
-      <LoginPage />
-    </AuthProvider>
-  ),
+  component: LoginPage,
 });
 
 function LoginPage() {
-  const { user, loginEmail, loginDemo } = useAuth();
+  const { user, login, loading: authLoading } = useAuth();
   const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Debug logging
+  useEffect(() => {
+    console.log("Auth loading state:", authLoading);
+    console.log("User state:", user);
+  }, [authLoading, user]);
 
   useEffect(() => {
     if (user) nav({ to: "/dashboard" });
@@ -29,26 +30,34 @@ function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) {
+      toast.error("Please enter email and password");
+      return;
+    }
+    
+    console.log("Attempting login with:", email);
     setBusy(true);
     try {
-      await loginEmail(email, password);
+      await login(email, password);
+      toast.success("Logged in successfully!");
+      nav({ to: "/dashboard" });
     } catch (err: any) {
-      toast.error(err?.message ?? "Login failed");
+      console.error("Login error:", err);
+      toast.error(err?.message ?? "Login failed. Check your credentials.");
     } finally {
       setBusy(false);
     }
   };
 
-  const demoUsers = store.listUsers().filter((u) =>
-    ["super_admin", "admin", "manager", "agent"].includes(u.role),
-  );
+  // Enable button if not busy, regardless of authLoading
+  const isDisabled = busy; // Remove authLoading from here temporarily
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/10 via-background to-background p-4">
-      <div className="grid w-full max-w-4xl gap-6 md:grid-cols-2">
+      <div className="grid w-full max-w-md gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Sign in to Luxe CRM</CardTitle>
+            <CardTitle>Sign in to Call CRM</CardTitle>
             <p className="text-sm text-muted-foreground">
               Use your Firebase credentials to continue.
             </p>
@@ -64,57 +73,36 @@ function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
+                  disabled={busy}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pw">Password</Label>
+                <Label htmlFor="password">Password</Label>
                 <Input
-                  id="pw"
+                  id="password"
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={busy}
                 />
               </div>
-              <Button type="submit" disabled={busy} className="w-full">
-                {busy ? "Signing in…" : "Sign in"}
+              <Button type="submit" disabled={isDisabled} className="w-full">
+                {busy ? "Signing in…" : authLoading ? "Loading..." : "Sign in"}
               </Button>
             </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Or explore in demo mode</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Pick a role to instantly preview the portal with sample data.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {demoUsers.map((u) => (
-              <Button
-                key={u.id}
-                variant="outline"
-                className="w-full justify-between"
-                onClick={() => {
-                  loginDemo(u.id);
-                  nav({ to: "/dashboard" });
-                }}
-              >
-                <span className="text-left">
-                  <span className="block text-sm font-medium">{u.fullName}</span>
-                  <span className="block text-xs text-muted-foreground">{u.email}</span>
-                </span>
-                <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-medium capitalize text-primary">
-                  {u.role.replace("_", " ")}
-                </span>
-              </Button>
-            ))}
-            <p className="pt-2 text-center text-xs text-muted-foreground">
-              <Link to="/" className="underline">
-                Back to home
-              </Link>
-            </p>
+            
+            <div className="mt-4 text-center text-sm text-muted-foreground">
+              <p className="text-xs">
+                Status: {authLoading ? "Loading Firebase..." : "Firebase Ready"}
+              </p>
+              <p className="mt-2">Demo credentials (create in Firebase first):</p>
+              <p className="mt-1 text-xs">
+                admin@luxe.com / password123<br />
+                agent@luxe.com / password123
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>

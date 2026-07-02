@@ -1,29 +1,112 @@
-import { store } from "./mock-store";
-import type { AppUser } from "./types";
+import { store } from './mock-store';
+import type { AppUser, CallRecord, Lead } from './types';
 
-const day = 86400000;
+export async function visibleLeads(user: AppUser | null): Promise<Lead[]> {
+  if (!user) return [];
+  const allLeads = await store.listLeads();
+  
+  if (!Array.isArray(allLeads)) {
+    console.warn('visibleLeads: allLeads is not an array', allLeads);
+    return [];
+  }
+  
+  if (user.role === 'super_admin' || user.role === 'admin') {
+    return allLeads;
+  }
+  if (user.role === 'manager') {
+    const allUsers = await store.listUsers();
+    const agents = allUsers.filter(u => u.managerId === user.id);
+    const agentIds = agents.map(a => a.id);
+    return allLeads.filter(l => l.assignedTo && agentIds.includes(l.assignedTo));
+  }
+  if (user.role === 'agent') {
+    return allLeads.filter(l => l.assignedTo === user.id);
+  }
+  return [];
+}
 
-export function agentMetrics(agentId: string) {
-  const since = Date.now() - 30 * day;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const calls = store.listCalls().filter((c) => c.agentId === agentId);
-  const recent = calls.filter((c) => c.startTime >= since);
-  const todayCalls = calls.filter((c) => c.startTime >= todayStart.getTime());
-  const leads = store.listLeads().filter((l) => l.assignedTo === agentId);
-  const won = leads.filter((l) => l.status === "won").length;
-  const lost = leads.filter((l) => l.status === "lost").length;
-  const total = leads.length || 1;
-  const answered = recent.filter((c) => c.status === "answered").length;
-  const conversion = Math.round((won / total) * 100);
-  const avgDuration = recent.length
-    ? Math.round(recent.reduce((a, c) => a + c.duration, 0) / recent.length)
+export async function visibleCalls(user: AppUser | null): Promise<CallRecord[]> {
+  if (!user) return [];
+  const allCalls = await store.listCalls();
+  
+  if (!Array.isArray(allCalls)) {
+    console.warn('visibleCalls: allCalls is not an array', allCalls);
+    return [];
+  }
+  
+  if (user.role === 'super_admin' || user.role === 'admin') {
+    return allCalls;
+  }
+  if (user.role === 'manager') {
+    const allUsers = await store.listUsers();
+    const agents = allUsers.filter(u => u.managerId === user.id);
+    const agentIds = agents.map(a => a.id);
+    return allCalls.filter(c => c.agentId && agentIds.includes(c.agentId));
+  }
+  if (user.role === 'agent') {
+    return allCalls.filter(c => c.agentId === user.id);
+  }
+  return [];
+}
+
+export async function visibleAgents(user: AppUser | null): Promise<AppUser[]> {
+  if (!user) return [];
+  const allUsers = await store.listUsers();
+  
+  if (!Array.isArray(allUsers)) {
+    console.warn('visibleAgents: allUsers is not an array', allUsers);
+    return [];
+  }
+  
+  // Get only users with role 'agent'
+  let agents = allUsers.filter(u => u.role === 'agent');
+  
+  if (user.role === 'super_admin' || user.role === 'admin') {
+    // Super admin and admin see all agents
+    return agents;
+  }
+  if (user.role === 'manager') {
+    // Manager sees only agents assigned to them
+    return agents.filter(a => a.managerId === user.id);
+  }
+  if (user.role === 'agent') {
+    // Agents don't see other agents
+    return [];
+  }
+  return [];
+}
+
+export async function agentMetrics(agentId: string) {
+  const calls = await store.listCalls();
+  const leads = await store.listLeads();
+  
+  const callsArray = Array.isArray(calls) ? calls : [];
+  const leadsArray = Array.isArray(leads) ? leads : [];
+  
+  const agentCalls = callsArray.filter(c => c.agentId === agentId);
+  const agentLeads = leadsArray.filter(l => l.assignedTo === agentId);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const callsToday = agentCalls.filter(c => c.startTime >= today.getTime()).length;
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const calls30d = agentCalls.filter(c => c.startTime >= thirtyDaysAgo).length;
+  const answered = agentCalls.filter(c => c.status === 'answered').length;
+  const conversion = agentLeads.length 
+    ? Math.round((agentLeads.filter(l => l.status === 'won').length / agentLeads.length) * 100)
     : 0;
-  const answerRate = recent.length ? Math.round((answered / recent.length) * 100) : 0;
+  const avgDuration = agentCalls.length 
+    ? Math.round(agentCalls.reduce((s, c) => s + c.duration, 0) / agentCalls.length)
+    : 0;
+  const answerRate = agentCalls.length 
+    ? Math.round((answered / agentCalls.length) * 100)
+    : 0;
+  const won = agentLeads.filter(l => l.status === 'won').length;
+  const lost = agentLeads.filter(l => l.status === 'lost').length;
+  
   return {
-    leadsAssigned: leads.length,
-    callsToday: todayCalls.length,
-    calls30d: recent.length,
+    leadsAssigned: agentLeads.length,
+    callsToday,
+    calls30d,
     conversion,
     avgDuration,
     answerRate,
@@ -32,41 +115,15 @@ export function agentMetrics(agentId: string) {
   };
 }
 
-export function tier(conversion: number): "high" | "medium" | "low" {
-  if (conversion >= 70) return "high";
-  if (conversion >= 40) return "medium";
-  return "low";
+export function fmtDuration(seconds: number): string {
+  if (!seconds) return '0s';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-export function visibleAgents(viewer: AppUser | null): AppUser[] {
-  if (!viewer) return [];
-  const all = store.listUsers().filter((u) => u.role === "agent");
-  if (viewer.role === "super_admin") return all;
-  if (viewer.role === "admin") return all.filter((u) => u.adminId === viewer.id);
-  if (viewer.role === "manager") return all.filter((u) => u.managerId === viewer.id);
-  return all.filter((u) => u.id === viewer.id);
-}
-
-export function visibleLeads(viewer: AppUser | null) {
-  const leads = store.listLeads();
-  if (!viewer) return [];
-  if (viewer.role === "super_admin") return leads;
-  if (viewer.role === "agent") return leads.filter((l) => l.assignedTo === viewer.id);
-  const agents = visibleAgents(viewer).map((a) => a.id);
-  return leads.filter((l) => l.assignedTo && agents.includes(l.assignedTo));
-}
-
-export function visibleCalls(viewer: AppUser | null) {
-  const calls = store.listCalls();
-  if (!viewer) return [];
-  if (viewer.role === "super_admin") return calls;
-  if (viewer.role === "agent") return calls.filter((c) => c.agentId === viewer.id);
-  const agents = visibleAgents(viewer).map((a) => a.id);
-  return calls.filter((c) => agents.includes(c.agentId));
-}
-
-export function fmtDuration(secs: number) {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+export function tier(conversion: number): 'high' | 'medium' | 'low' {
+  if (conversion >= 70) return 'high';
+  if (conversion >= 40) return 'medium';
+  return 'low';
 }

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { store, useStoreVersion, newId } from "@/lib/mock-store";
 import { agentMetrics, fmtDuration, tier, visibleAgents } from "@/lib/perf";
@@ -64,14 +64,143 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, subDays, startOfDay } from "date-fns";
-
+interface NewAgentData {
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+  role: string;
+}
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
 });
+function AddAgentModal({ open, onOpenChange, onAgentAdded }: { 
+  open: boolean; 
+  onOpenChange: (v: boolean) => void;
+  onAgentAdded: () => void;
+}) {
+  const { user } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  const handleSubmit = async () => {
+    if (!fullName || !email || !password) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Import Firebase auth
+      const { getAuth, createUserWithEmailAndPassword } = await import('firebase/auth');
+      const { app } = await import('@/lib/firebase');
+      const auth = getAuth(app);
+      
+      // Create user in Firebase Authentication
+      const userCred = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Create agent in Firestore
+      const newAgent: AppUser = {
+        id: userCred.user.uid,
+        fullName,
+        email,
+        phone,
+        role: 'agent',
+        status: 'active',
+        createdBy: user?.id || '',
+        createdAt: Date.now(),
+        managerId: user?.role === 'manager' ? user.id : null,
+        adminId: user?.role === 'admin' ? user.id : null,
+      };
+      
+      await store.upsertUser(newAgent);
+      toast.success(`Agent "${fullName}" created successfully!`);
+      onAgentAdded();
+      onOpenChange(false);
+      
+      // Reset form
+      setFullName("");
+      setEmail("");
+      setPhone("");
+      setPassword("");
+    } catch (error: any) {
+      console.error('Error creating agent:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        toast.error('Email already in use. Please use a different email.');
+      } else {
+        toast.error(error?.message || 'Failed to create agent');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add New Agent</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>Full Name *</Label>
+            <Input 
+              value={fullName} 
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="John Doe"
+            />
+          </div>
+          <div>
+            <Label>Email *</Label>
+            <Input 
+              type="email"
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="agent@example.com"
+            />
+          </div>
+          <div>
+            <Label>Phone</Label>
+            <Input 
+              value={phone} 
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 555 123 4567"
+            />
+          </div>
+          <div>
+            <Label>Password *</Label>
+            <Input 
+              type="password"
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter a secure password"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Agent will use this password to login
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? "Creating..." : "Create Agent"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 function AgentsPage() {
   useStoreVersion();
   const { user } = useAuth();
+  
+  const [agents, setAgents] = useState<AppUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -80,50 +209,79 @@ function AgentsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [bulkLeadsOpen, setBulkLeadsOpen] = useState(false);
-
-  if (!user) return null;
-  const all = visibleAgents(user);
+  const [agentMetricsMap, setAgentMetricsMap] = useState<Map<string, any>>(new Map());
+const [addAgentOpen, setAddAgentOpen] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const agentsList = await visibleAgents(user);
+        setAgents(agentsList);
+        
+        const metricsMap = new Map();
+        for (const agent of agentsList) {
+          const metrics = await agentMetrics(agent.id);
+          metricsMap.set(agent.id, metrics);
+        }
+        setAgentMetricsMap(metricsMap);
+      } catch (error) {
+        console.error('Error loading agents:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]);
 
   const filtered = useMemo(() => {
-    let arr = all.filter((a) => {
+    let arr = agents;
+    return arr.filter((a) => {
+      const m = agentMetricsMap.get(a.id) || { conversion: 0 };
       const q = search.toLowerCase();
       const matchSearch =
         !q || a.fullName.toLowerCase().includes(q) || a.email.toLowerCase().includes(q);
       const matchStatus = statusFilter === "all" || a.status === statusFilter;
-      const m = agentMetrics(a.id);
       const t = tier(m.conversion);
       const matchPerf = perfFilter === "all" || perfFilter === t;
       return matchSearch && matchStatus && matchPerf;
-    });
-    arr.sort((a, b) => {
-      const ma = agentMetrics(a.id);
-      const mb = agentMetrics(b.id);
+    }).sort((a, b) => {
+      const ma = agentMetricsMap.get(a.id) || { leadsAssigned: 0, conversion: 0, calls30d: 0 };
+      const mb = agentMetricsMap.get(b.id) || { leadsAssigned: 0, conversion: 0, calls30d: 0 };
       if (sort === "name") return a.fullName.localeCompare(b.fullName);
       if (sort === "leads") return mb.leadsAssigned - ma.leadsAssigned;
       if (sort === "conversion") return mb.conversion - ma.conversion;
       if (sort === "calls") return mb.calls30d - ma.calls30d;
       return 0;
     });
-    return arr;
-  }, [all, search, statusFilter, perfFilter, sort]);
+  }, [agents, agentMetricsMap, search, statusFilter, perfFilter, sort]);
 
-  const active = activeId ? all.find((a) => a.id === activeId) : null;
+  if (!user) return null;
 
-  const totalActive = all.filter((a) => a.status === "active").length;
-  const avgConv =
-    all.length === 0
-      ? 0
-      : Math.round(
-          all.reduce((s, a) => s + agentMetrics(a.id).conversion, 0) / all.length,
-        );
-  const totalCallsToday = all.reduce((s, a) => s + agentMetrics(a.id).callsToday, 0);
-  const totalLeadsAssigned = all.reduce((s, a) => s + agentMetrics(a.id).leadsAssigned, 0);
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading agents...</p>
+      </div>
+    );
+  }
+
+  const totalActive = agents.filter((a) => a.status === "active").length;
+  const avgConv = agents.length === 0
+    ? 0
+    : Math.round(
+        agents.reduce((s, a) => s + (agentMetricsMap.get(a.id)?.conversion || 0), 0) / agents.length,
+      );
+  const totalCallsToday = agents.reduce((s, a) => s + (agentMetricsMap.get(a.id)?.callsToday || 0), 0);
+  const totalLeadsAssigned = agents.reduce((s, a) => s + (agentMetricsMap.get(a.id)?.leadsAssigned || 0), 0);
 
   const exportCsv = (rows: AppUser[]) => {
     const header = "Name,Email,Phone,Status,Leads,Calls Today,Conversion %\n";
     const body = rows
       .map((a) => {
-        const m = agentMetrics(a.id);
+        const m = agentMetricsMap.get(a.id) || { leadsAssigned: 0, callsToday: 0, conversion: 0 };
         return `${a.fullName},${a.email},${a.phone || ""},${a.status},${m.leadsAssigned},${m.callsToday},${m.conversion}`;
       })
       .join("\n");
@@ -146,18 +304,18 @@ function AgentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => store.subscribe(() => {})()}>
+          <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={() => exportCsv(all)}>
+          <Button variant="outline" size="sm" onClick={() => exportCsv(agents)}>
             <Download className="mr-2 h-4 w-4" />
             Export all
           </Button>
-          <Button size="sm">
-            <Plus className="mr-2 h-4 w-4" />
-            Add agent
-          </Button>
+          <Button size="sm" onClick={() => setAddAgentOpen(true)}>
+  <Plus className="mr-2 h-4 w-4" />
+  Add agent
+</Button>
         </div>
       </div>
 
@@ -241,7 +399,7 @@ function AgentsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => exportCsv(all.filter((a) => selected.has(a.id)))}
+                  onClick={() => exportCsv(agents.filter((a) => selected.has(a.id)))}
                 >
                   Export selected
                 </Button>
@@ -258,8 +416,9 @@ function AgentsPage() {
                 <AgentCard
                   key={a.id}
                   agent={a}
+                  metrics={agentMetricsMap.get(a.id)}
                   selected={selected.has(a.id)}
-                  onSelect={(v) => {
+                  onSelect={(v: boolean) => {
                     const s = new Set(selected);
                     v ? s.add(a.id) : s.delete(a.id);
                     setSelected(s);
@@ -268,7 +427,9 @@ function AgentsPage() {
                 />
               ))}
               {filtered.length === 0 && (
-                <p className="text-sm text-muted-foreground">No agents match.</p>
+                <p className="text-sm text-muted-foreground col-span-full text-center py-8">
+                  No agents found.
+                </p>
               )}
             </div>
           ) : (
@@ -289,7 +450,7 @@ function AgentsPage() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((a) => {
-                    const m = agentMetrics(a.id);
+                    const m = agentMetricsMap.get(a.id) || { leadsAssigned: 0, callsToday: 0, conversion: 0, avgDuration: 0 };
                     return (
                       <TableRow
                         key={a.id}
@@ -316,13 +477,20 @@ function AgentsPage() {
                         <TableCell>{m.conversion}%</TableCell>
                         <TableCell>{fmtDuration(m.avgDuration)}</TableCell>
                         <TableCell>
-                          <Button size="sm" variant="ghost">
+                          <Button size="sm" variant="ghost" onClick={() => setActiveId(a.id)}>
                             View
                           </Button>
                         </TableCell>
                       </TableRow>
                     );
                   })}
+                  {filtered.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center text-muted-foreground">
+                        No agents found
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -330,7 +498,12 @@ function AgentsPage() {
         </CardContent>
       </Card>
 
-      {active && <AgentDetails agent={active} onClose={() => setActiveId(null)} />}
+      {activeId && (
+        <AgentDetails 
+          agent={agents.find(a => a.id === activeId)!} 
+          onClose={() => setActiveId(null)} 
+        />
+      )}
 
       <BulkAssignLeadsModal
         open={bulkLeadsOpen}
@@ -338,6 +511,26 @@ function AgentsPage() {
         agentIds={Array.from(selected)}
         viewerId={user.id}
       />
+<AddAgentModal 
+  open={addAgentOpen}
+  onOpenChange={setAddAgentOpen}
+  onAgentAdded={() => {
+    // Refresh agents list
+    const loadData = async () => {
+      if (!user) return;
+      const agentsList = await visibleAgents(user);
+      setAgents(agentsList);
+      
+      const metricsMap = new Map();
+      for (const agent of agentsList) {
+        const metrics = await agentMetrics(agent.id);
+        metricsMap.set(agent.id, metrics);
+      }
+      setAgentMetricsMap(metricsMap);
+    };
+    loadData();
+  }}
+/>
     </div>
   );
 }
@@ -366,18 +559,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function AgentCard({
-  agent,
-  selected,
-  onSelect,
-  onOpen,
-}: {
-  agent: AppUser;
-  selected: boolean;
-  onSelect: (v: boolean) => void;
-  onOpen: () => void;
-}) {
-  const m = agentMetrics(agent.id);
+function AgentCard({ agent, metrics, selected, onSelect, onOpen }: any) {
+  const m = metrics || { conversion: 0 };
   const t = tier(m.conversion);
   const colors = { high: "bg-emerald-500", medium: "bg-amber-500", low: "bg-rose-500" };
   return (
@@ -385,15 +568,6 @@ function AgentCard({
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
           <Checkbox checked={selected} onCheckedChange={(v) => onSelect(!!v)} />
-          <div
-            className={`flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold text-white ${colors[t]}`}
-          >
-            {agent.fullName
-              .split(" ")
-              .map((n) => n[0])
-              .slice(0, 2)
-              .join("")}
-          </div>
           <div className="min-w-0 flex-1">
             <button onClick={onOpen} className="block text-left">
               <div className="truncate font-semibold hover:underline">{agent.fullName}</div>
@@ -408,31 +582,23 @@ function AgentCard({
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
           <div className="rounded-md bg-muted p-2">
-            <div className="font-semibold">{m.callsToday}</div>
+            <div className="font-semibold">{m.callsToday || 0}</div>
             <div className="text-muted-foreground">calls today</div>
           </div>
           <div className="rounded-md bg-muted p-2">
-            <div className="font-semibold">{m.conversion}%</div>
+            <div className="font-semibold">{m.conversion || 0}%</div>
             <div className="text-muted-foreground">conv.</div>
           </div>
           <div className="rounded-md bg-muted p-2">
-            <div className="font-semibold">{m.leadsAssigned}</div>
+            <div className="font-semibold">{m.leadsAssigned || 0}</div>
             <div className="text-muted-foreground">leads</div>
           </div>
         </div>
         <div className="mt-3 flex gap-2">
-          <Button size="sm" variant="outline" className="flex-1" onClick={onOpen}>
-            Details
-          </Button>
-          <Button size="sm" variant="outline" onClick={onOpen}>
-            <UserPlus className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline">
-            <Phone className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline">
-            <MessageSquare className="h-4 w-4" />
-          </Button>
+          <Button size="sm" variant="outline" className="flex-1" onClick={onOpen}>Details</Button>
+          <Button size="sm" variant="outline" onClick={onOpen}><UserPlus className="h-4 w-4" /></Button>
+          <Button size="sm" variant="outline"><Phone className="h-4 w-4" /></Button>
+          <Button size="sm" variant="outline"><MessageSquare className="h-4 w-4" /></Button>
         </div>
       </CardContent>
     </Card>
@@ -440,441 +606,148 @@ function AgentCard({
 }
 
 function AgentDetails({ agent, onClose }: { agent: AppUser; onClose: () => void }) {
-  const { user } = useAuth();
   const [tab, setTab] = useState("leads");
-  const [assignLeadsOpen, setAssignLeadsOpen] = useState(false);
-  const [assignCallsOpen, setAssignCallsOpen] = useState(false);
-  const m = agentMetrics(agent.id);
-  const leads = store.listLeads().filter((l) => l.assignedTo === agent.id);
-  const calls = store.listCalls().filter((c) => c.agentId === agent.id);
-  const tasks = store.listTasks().filter((t) => t.assignedTo === agent.id);
-  const activity = store.listActivity().filter((a) => a.userId === agent.id);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [calls, setCalls] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [activity, setActivity] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadAgentData = async () => {
+      const allLeads = await store.listLeads();
+      const allCalls = await store.listCalls();
+      const allTasks = await store.listTasks();
+      const allActivity = await store.listActivity();
+      
+      setLeads(allLeads.filter((l) => l.assignedTo === agent.id));
+      setCalls(allCalls.filter((c) => c.agentId === agent.id));
+      setTasks(allTasks.filter((t) => t.assignedTo === agent.id));
+      setActivity(allActivity.filter((a) => a.userId === agent.id));
+    };
+    loadAgentData();
+  }, [agent.id]);
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div>
-          <CardTitle>{agent.fullName}</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {agent.email} • {agent.phone} • Joined{" "}
-            {agent.createdAt ? format(agent.createdAt, "MMM d, yyyy") : "—"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={agent.status}
-            onValueChange={(v) => {
-              store.upsertUser({ ...agent, status: v as any });
-              toast.success("Status updated");
-            }}
-          >
-            <SelectTrigger className="w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-              <SelectItem value="on_break">On break</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button size="sm" variant="outline">
-            Reset password
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
+    <Dialog open={true} onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{agent.fullName} - Agent Details</DialogTitle>
+        </DialogHeader>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
-            <TabsTrigger value="leads">Assigned Leads</TabsTrigger>
-            <TabsTrigger value="calls">Call History</TabsTrigger>
-            <TabsTrigger value="perf">Performance</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
+            <TabsTrigger value="leads">Leads ({leads.length})</TabsTrigger>
+            <TabsTrigger value="calls">Calls ({calls.length})</TabsTrigger>
+            <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
-
           <TabsContent value="leads" className="space-y-3 pt-4">
-            <div className="flex justify-end gap-2">
-              <Button size="sm" onClick={() => setAssignLeadsOpen(true)}>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Assign new lead
-              </Button>
-            </div>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Lead</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
-                  <TableHead>Last contacted</TableHead>
-                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {leads.map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell className="font-medium">
-                      {l.firstName} {l.lastName}
-                    </TableCell>
+                    <TableCell>{l.firstName} {l.lastName}</TableCell>
                     <TableCell>{l.phone}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{l.status}</Badge>
-                    </TableCell>
-                    <TableCell>{format(l.createdAt, "MMM d")}</TableCell>
-                    <TableCell>
-                      {l.lastContactedAt ? format(l.lastContactedAt, "MMM d") : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Button size="sm" variant="ghost">
-                        <PhoneCall className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          store.upsertLead({ ...l, assignedTo: null });
-                          toast.success("Unassigned");
-                        }}
-                      >
-                        Unassign
-                      </Button>
-                    </TableCell>
+                    <TableCell><Badge>{l.status}</Badge></TableCell>
+                    <TableCell>{format(l.createdAt, "MMM d, yyyy")}</TableCell>
                   </TableRow>
                 ))}
                 {leads.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      No leads assigned.
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={4} className="text-center">No leads assigned</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
           </TabsContent>
-
-          <TabsContent value="calls" className="space-y-3 pt-4">
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setAssignCallsOpen(true)}>
-                <PhoneCall className="mr-2 h-4 w-4" />
-                Assign call task
-              </Button>
-            </div>
+          <TabsContent value="calls" className="pt-4">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Lead</TableHead>
-                  <TableHead>Phone</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Recording</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {calls.slice(0, 50).map((c) => (
+                {calls.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell>{format(c.startTime, "MMM d, p")}</TableCell>
                     <TableCell>{c.leadName}</TableCell>
-                    <TableCell>{c.leadPhone}</TableCell>
                     <TableCell>{fmtDuration(c.duration)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{c.status}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <audio controls className="h-8" src="" />
-                    </TableCell>
+                    <TableCell><Badge>{c.status}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TabsContent>
-
-          <TabsContent value="perf" className="pt-4">
-            <PerfTab agentId={agent.id} />
-          </TabsContent>
-
           <TabsContent value="tasks" className="pt-4">
             <div className="space-y-2">
               {tasks.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between rounded-md border p-3 text-sm"
-                >
-                  <div>
-                    <div className="font-medium">{t.leadName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(t.scheduledTime, "MMM d, p")} • {t.priority}
-                    </div>
-                  </div>
+                <div key={t.id} className="flex justify-between border-b py-2">
+                  <div>{t.leadName}</div>
+                  <div>{format(t.scheduledTime, "MMM d, p")}</div>
                   <Badge>{t.status}</Badge>
                 </div>
               ))}
-              {tasks.length === 0 && (
-                <p className="text-sm text-muted-foreground">No tasks.</p>
-              )}
             </div>
           </TabsContent>
-
           <TabsContent value="activity" className="pt-4">
             <div className="space-y-2">
-              {activity.slice(0, 50).map((a) => (
+              {activity.map((a) => (
                 <div key={a.id} className="flex justify-between border-b py-2 text-sm">
-                  <div>
-                    <div className="font-medium">{a.action}</div>
-                    {a.details && (
-                      <div className="text-xs text-muted-foreground">{a.details}</div>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {format(a.timestamp, "MMM d, p")}
-                  </div>
+                  <div>{a.action}</div>
+                  <div>{format(a.timestamp, "MMM d, p")}</div>
                 </div>
               ))}
-              {activity.length === 0 && (
-                <p className="text-sm text-muted-foreground">No activity yet.</p>
-              )}
             </div>
           </TabsContent>
         </Tabs>
-      </CardContent>
-
-      <AssignLeadsModal
-        open={assignLeadsOpen}
-        onOpenChange={setAssignLeadsOpen}
-        agentId={agent.id}
-        viewerId={user?.id || ""}
-      />
-      <AssignCallsModal
-        open={assignCallsOpen}
-        onOpenChange={setAssignCallsOpen}
-        agentId={agent.id}
-        viewerId={user?.id || ""}
-      />
-    </Card>
-  );
-}
-
-function PerfTab({ agentId }: { agentId: string }) {
-  const m = agentMetrics(agentId);
-  const calls = store.listCalls().filter((c) => c.agentId === agentId);
-  const last30 = useMemo(
-    () =>
-      Array.from({ length: 30 }).map((_, i) => {
-        const d = subDays(new Date(), 29 - i);
-        const s = startOfDay(d).getTime();
-        const e = s + 86400000;
-        return {
-          day: format(d, "MM/dd"),
-          calls: calls.filter((c) => c.startTime >= s && c.startTime < e).length,
-        };
-      }),
-    [calls],
-  );
-  const outcomes = ["answered", "voicemail", "no_answer", "busy"].map((s) => ({
-    name: s,
-    value: calls.filter((c) => c.status === s).length,
-  }));
-  const COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1"];
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Kpi label="Leads (30d)" value={m.leadsAssigned} />
-        <Kpi label="Calls (30d)" value={m.calls30d} />
-        <Kpi label="Conversion" value={`${m.conversion}%`} />
-        <Kpi label="Avg duration" value={fmtDuration(m.avgDuration)} />
-        <Kpi label="Answer rate" value={`${m.answerRate}%`} />
-        <Kpi label="Won/Lost" value={`${m.won}/${m.lost}`} />
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Daily calls (last 30 days)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={last30}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="day" />
-                <YAxis />
-                <Tooltip />
-                <Line dataKey="calls" stroke="hsl(var(--primary))" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Call outcomes</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[240px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={outcomes} dataKey="value" nameKey="name" outerRadius={80} label>
-                  {outcomes.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i]} />
-                  ))}
-                </Pie>
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function Kpi({ label, value }: { label: string; value: any }) {
-  return (
-    <div className="rounded-md border p-3">
-      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-bold">{value}</div>
-    </div>
-  );
-}
-
-function AssignLeadsModal({
-  open,
-  onOpenChange,
-  agentId,
-  viewerId,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  agentId: string;
-  viewerId: string;
-}) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [q, setQ] = useState("");
-  const unassigned = store
-    .listLeads()
-    .filter((l) => !l.assignedTo && l.status === "new")
-    .filter(
-      (l) =>
-        !q ||
-        `${l.firstName} ${l.lastName}`.toLowerCase().includes(q.toLowerCase()) ||
-        l.phone.includes(q),
-    );
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Assign leads</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div>
-            <Input
-              placeholder="Search unassigned leads"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <div className="mt-2 h-[300px] overflow-auto rounded-md border">
-              {unassigned.map((l) => (
-                <label
-                  key={l.id}
-                  className="flex cursor-pointer items-center gap-2 border-b p-2 text-sm hover:bg-muted"
-                >
-                  <Checkbox
-                    checked={selected.has(l.id)}
-                    onCheckedChange={(v) => {
-                      const s = new Set(selected);
-                      v ? s.add(l.id) : s.delete(l.id);
-                      setSelected(s);
-                    }}
-                  />
-                  <div>
-                    <div className="font-medium">
-                      {l.firstName} {l.lastName}
-                    </div>
-                    <div className="text-xs text-muted-foreground">{l.phone}</div>
-                  </div>
-                </label>
-              ))}
-              {unassigned.length === 0 && (
-                <p className="p-3 text-sm text-muted-foreground">No unassigned leads.</p>
-              )}
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-medium">Selected ({selected.size})</p>
-            <div className="mt-2 h-[300px] overflow-auto rounded-md border p-2">
-              {Array.from(selected).map((id) => {
-                const l = store.listLeads().find((x) => x.id === id);
-                if (!l) return null;
-                return (
-                  <div key={id} className="flex justify-between border-b py-1 text-sm">
-                    <span>
-                      {l.firstName} {l.lastName}
-                    </span>
-                    <button
-                      onClick={() => {
-                        const s = new Set(selected);
-                        s.delete(id);
-                        setSelected(s);
-                      }}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      remove
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={selected.size === 0}
-            onClick={() => {
-              store.assignLeads(Array.from(selected), agentId, viewerId);
-              toast.success(`${selected.size} lead(s) assigned`);
-              setSelected(new Set());
-              onOpenChange(false);
-            }}
-          >
-            Assign {selected.size}
-          </Button>
+          <Button onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function BulkAssignLeadsModal({
-  open,
-  onOpenChange,
-  agentIds,
-  viewerId,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  agentIds: string[];
-  viewerId: string;
-}) {
+function BulkAssignLeadsModal({ open, onOpenChange, agentIds, viewerId }: any) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const unassigned = store.listLeads().filter((l) => !l.assignedTo);
+  const [unassigned, setUnassigned] = useState<Lead[]>([]);
+
+  useEffect(() => {
+    const loadUnassigned = async () => {
+      const allLeads = await store.listLeads();
+      setUnassigned(allLeads.filter((l) => !l.assignedTo));
+    };
+    if (open) loadUnassigned();
+  }, [open]);
+
+  const handleAssign = async () => {
+    const leadArray = Array.from(selected);
+    leadArray.forEach((id, i) => {
+      store.assignLeads([id], agentIds[i % agentIds.length], viewerId);
+    });
+    toast.success(`Assigned ${leadArray.length} leads to ${agentIds.length} agents`);
+    setSelected(new Set());
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Bulk assign leads</DialogTitle>
+          <DialogTitle>Bulk Assign Leads</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Distribute selected leads round-robin across {agentIds.length} agent(s).
-        </p>
         <div className="h-[300px] overflow-auto rounded-md border">
           {unassigned.map((l) => (
-            <label
-              key={l.id}
-              className="flex cursor-pointer items-center gap-2 border-b p-2 text-sm hover:bg-muted"
-            >
+            <label key={l.id} className="flex items-center gap-2 border-b p-2 hover:bg-muted">
               <Checkbox
                 checked={selected.has(l.id)}
                 onCheckedChange={(v) => {
@@ -883,125 +756,17 @@ function BulkAssignLeadsModal({
                   setSelected(s);
                 }}
               />
-              <span>
-                {l.firstName} {l.lastName} — {l.phone}
-              </span>
+              <span>{l.firstName} {l.lastName} - {l.phone}</span>
             </label>
           ))}
+          {unassigned.length === 0 && (
+            <p className="p-4 text-center text-muted-foreground">No unassigned leads</p>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={selected.size === 0 || agentIds.length === 0}
-            onClick={() => {
-              const ids = Array.from(selected);
-              ids.forEach((id, i) => {
-                store.assignLeads([id], agentIds[i % agentIds.length], viewerId);
-              });
-              toast.success(`Distributed ${ids.length} leads to ${agentIds.length} agents`);
-              setSelected(new Set());
-              onOpenChange(false);
-            }}
-          >
-            Distribute
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AssignCallsModal({
-  open,
-  onOpenChange,
-  agentId,
-  viewerId,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  agentId: string;
-  viewerId: string;
-}) {
-  const [leadId, setLeadId] = useState<string>("");
-  const [priority, setPriority] = useState<Priority>("medium");
-  const [when, setWhen] = useState<string>(format(new Date(Date.now() + 3600000), "yyyy-MM-dd'T'HH:mm"));
-  const [notes, setNotes] = useState("");
-  const leads = store
-    .listLeads()
-    .filter((l) => l.assignedTo === agentId || !l.assignedTo);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Schedule callback task</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label>Lead</Label>
-            <Select value={leadId} onValueChange={setLeadId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose lead" />
-              </SelectTrigger>
-              <SelectContent>
-                {leads.slice(0, 50).map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.firstName} {l.lastName} — {l.phone}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Scheduled time</Label>
-            <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
-          </div>
-          <div>
-            <Label>Priority</Label>
-            <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Notes</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!leadId}
-            onClick={() => {
-              const lead = store.listLeads().find((l) => l.id === leadId);
-              if (!lead) return;
-              const task: CallTask = {
-                id: newId("t"),
-                leadId,
-                leadName: `${lead.firstName} ${lead.lastName}`,
-                leadPhone: lead.phone,
-                assignedTo: agentId,
-                assignedBy: viewerId,
-                priority,
-                scheduledTime: new Date(when).getTime(),
-                notes,
-                status: "pending",
-              };
-              store.upsertTask(task);
-              toast.success("Task scheduled");
-              onOpenChange(false);
-            }}
-          >
-            Schedule
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleAssign} disabled={selected.size === 0 || agentIds.length === 0}>
+            Assign {selected.size} leads
           </Button>
         </DialogFooter>
       </DialogContent>

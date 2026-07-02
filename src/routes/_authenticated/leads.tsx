@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { store, useStoreVersion, newId } from "@/lib/mock-store";
 import { visibleAgents, visibleLeads } from "@/lib/perf";
@@ -35,6 +35,11 @@ export const Route = createFileRoute("/_authenticated/leads")({
 function LeadsPage() {
   useStoreVersion();
   const { user } = useAuth();
+  
+  // ALL STATE HOOKS FIRST
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
   const [agentF, setAgentF] = useState("all");
@@ -43,24 +48,54 @@ function LeadsPage() {
   const [preview, setPreview] = useState<any[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  if (!user) return null;
-  const leads = visibleLeads(user);
-  const agents = visibleAgents(user);
+  // ALL EFFECTS SECOND
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [leadsData, agentsData] = await Promise.all([
+          visibleLeads(user),
+          visibleAgents(user)
+        ]);
+        setLeads(leadsData);
+        setAgents(agentsData);
+      } catch (error) {
+        console.error('Error loading leads data:', error);
+        toast.error('Failed to load leads');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]);
 
-  const filtered = useMemo(
-    () =>
-      leads.filter((l) => {
-        const m =
-          !q ||
-          `${l.firstName} ${l.lastName}`.toLowerCase().includes(q.toLowerCase()) ||
-          l.phone.includes(q) ||
-          (l.email || "").toLowerCase().includes(q.toLowerCase());
-        const ms = statusF === "all" || l.status === statusF;
-        const ma = agentF === "all" || l.assignedTo === agentF;
-        return m && ms && ma;
-      }),
-    [leads, q, statusF, agentF],
-  );
+  // ALL MEMO HOOKS THIRD
+  const filtered = useMemo(() => {
+    if (!Array.isArray(leads)) return [];
+    return leads.filter((l) => {
+      const m = !q ||
+        `${l.firstName} ${l.lastName}`.toLowerCase().includes(q.toLowerCase()) ||
+        l.phone.includes(q) ||
+        (l.email || "").toLowerCase().includes(q.toLowerCase());
+      const ms = statusF === "all" || l.status === statusF;
+      const ma = agentF === "all" || l.assignedTo === agentF;
+      return m && ms && ma;
+    });
+  }, [leads, q, statusF, agentF]);
+
+  // CONDITIONAL RETURNS AFTER ALL HOOKS
+  if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading leads...</p>
+      </div>
+    );
+  }
 
   const handleFile = (file: File) => {
     const reader = new FileReader();
@@ -105,6 +140,8 @@ function LeadsPage() {
     toast.success(`Imported ${newLeads.length} leads`);
     setPreview(null);
     if (fileRef.current) fileRef.current.value = "";
+    // Refresh leads
+    visibleLeads(user).then(setLeads);
   };
 
   const exportCsv = () => {
@@ -275,6 +312,8 @@ function LeadsPage() {
                   toast.success("Assigned");
                   setSelected(new Set());
                   setBulkAgent("");
+                  // Refresh leads
+                  visibleLeads(user).then(setLeads);
                 }}
               >
                 Confirm
@@ -318,9 +357,12 @@ function LeadsPage() {
                     <TableCell>
                       <Select
                         value={l.status}
-                        onValueChange={(v) =>
-                          store.upsertLead({ ...l, status: v as LeadStatus })
-                        }
+                        onValueChange={async (v) => {
+                          await store.upsertLead({ ...l, status: v as LeadStatus });
+                          // Refresh leads
+                          const newLeads = await visibleLeads(user);
+                          setLeads(newLeads);
+                        }}
                       >
                         <SelectTrigger className="h-7 w-[120px]">
                           <SelectValue />

@@ -1,23 +1,19 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import { Toaster } from "@/components/ui/sonner";
 
 export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
+  beforeLoad: ({ context }) => {
+    // You can add route protection here if needed
+  },
 });
 
 function AuthenticatedLayout() {
-  return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
-  );
-}
-
-function Gate() {
   const { user, loading } = useAuth();
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
@@ -25,12 +21,11 @@ function Gate() {
       </div>
     );
   }
+
   if (!user) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    return null;
+    throw redirect({ to: "/login" });
   }
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-muted/30">

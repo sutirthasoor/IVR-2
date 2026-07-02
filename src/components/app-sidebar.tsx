@@ -9,6 +9,8 @@ import {
   Settings,
   LogOut,
   Headphones,
+  MessageSquare,
+  FileText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,8 +35,9 @@ const adminItems: Item[] = [
   { title: "Agents", url: "/agents", icon: Headphones },
   { title: "Leads", url: "/leads", icon: ListChecks },
   { title: "Call Logs", url: "/calls", icon: Phone },
+  { title: "Messages", url: "/messages", icon: MessageSquare },
+  { title: "Surveys", url: "/surveys", icon: FileText },
   { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 const managerItems: Item[] = [
@@ -42,6 +45,8 @@ const managerItems: Item[] = [
   { title: "Agents", url: "/agents", icon: Headphones },
   { title: "Team Leads", url: "/leads", icon: ListChecks },
   { title: "Call Logs", url: "/calls", icon: Phone },
+  { title: "Messages", url: "/messages", icon: MessageSquare },
+  { title: "Surveys", url: "/surveys", icon: FileText },
   { title: "Reports", url: "/reports", icon: BarChart3 },
 ];
 
@@ -49,6 +54,9 @@ const agentItems: Item[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Leads", url: "/my-leads", icon: ListChecks },
   { title: "My Calls", url: "/my-calls", icon: Phone },
+  // Agents can view messages and surveys sent to them
+  { title: "Messages", url: "/messages", icon: MessageSquare },
+  { title: "Surveys", url: "/surveys", icon: FileText },
 ];
 
 export function AppSidebar() {
@@ -62,11 +70,8 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
-            L
-          </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-semibold">Luxe CRM</span>
+            <span className="text-sm font-semibold">Call Hub Pro</span>
             <span className="text-xs text-muted-foreground capitalize">
               {user.role.replace("_", " ")}
             </span>
@@ -109,7 +114,7 @@ export function AppSidebar() {
           variant="ghost"
           size="sm"
           onClick={() => logout()}
-          className="justify-start gap-2"
+          className="justify-start gap-2 w-full"
         >
           <LogOut className="h-4 w-4" />
           <span className="group-data-[collapsible=icon]:hidden">Sign out</span>

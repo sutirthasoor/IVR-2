@@ -13,10 +13,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
+import { Route as AuthenticatedSurveysRouteImport } from './routes/_authenticated/surveys'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedReportsRouteImport } from './routes/_authenticated/reports'
 import { Route as AuthenticatedMyLeadsRouteImport } from './routes/_authenticated/my-leads'
 import { Route as AuthenticatedMyCallsRouteImport } from './routes/_authenticated/my-calls'
+import { Route as AuthenticatedMessagesRouteImport } from './routes/_authenticated/messages'
 import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCallsRouteImport } from './routes/_authenticated/calls'
@@ -41,6 +43,11 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedSurveysRoute = AuthenticatedSurveysRouteImport.update({
+  id: '/surveys',
+  path: '/surveys',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -59,6 +66,11 @@ const AuthenticatedMyLeadsRoute = AuthenticatedMyLeadsRouteImport.update({
 const AuthenticatedMyCallsRoute = AuthenticatedMyCallsRouteImport.update({
   id: '/my-calls',
   path: '/my-calls',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMessagesRoute = AuthenticatedMessagesRouteImport.update({
+  id: '/messages',
+  path: '/messages',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedLeadsRoute = AuthenticatedLeadsRouteImport.update({
@@ -89,10 +101,12 @@ export interface FileRoutesByFullPath {
   '/calls': typeof AuthenticatedCallsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/leads': typeof AuthenticatedLeadsRoute
+  '/messages': typeof AuthenticatedMessagesRoute
   '/my-calls': typeof AuthenticatedMyCallsRoute
   '/my-leads': typeof AuthenticatedMyLeadsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/surveys': typeof AuthenticatedSurveysRoute
   '/users': typeof AuthenticatedUsersRoute
 }
 export interface FileRoutesByTo {
@@ -102,10 +116,12 @@ export interface FileRoutesByTo {
   '/calls': typeof AuthenticatedCallsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/leads': typeof AuthenticatedLeadsRoute
+  '/messages': typeof AuthenticatedMessagesRoute
   '/my-calls': typeof AuthenticatedMyCallsRoute
   '/my-leads': typeof AuthenticatedMyLeadsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/surveys': typeof AuthenticatedSurveysRoute
   '/users': typeof AuthenticatedUsersRoute
 }
 export interface FileRoutesById {
@@ -117,10 +133,12 @@ export interface FileRoutesById {
   '/_authenticated/calls': typeof AuthenticatedCallsRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/leads': typeof AuthenticatedLeadsRoute
+  '/_authenticated/messages': typeof AuthenticatedMessagesRoute
   '/_authenticated/my-calls': typeof AuthenticatedMyCallsRoute
   '/_authenticated/my-leads': typeof AuthenticatedMyLeadsRoute
   '/_authenticated/reports': typeof AuthenticatedReportsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/surveys': typeof AuthenticatedSurveysRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
 }
 export interface FileRouteTypes {
@@ -132,10 +150,12 @@ export interface FileRouteTypes {
     | '/calls'
     | '/dashboard'
     | '/leads'
+    | '/messages'
     | '/my-calls'
     | '/my-leads'
     | '/reports'
     | '/settings'
+    | '/surveys'
     | '/users'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -145,10 +165,12 @@ export interface FileRouteTypes {
     | '/calls'
     | '/dashboard'
     | '/leads'
+    | '/messages'
     | '/my-calls'
     | '/my-leads'
     | '/reports'
     | '/settings'
+    | '/surveys'
     | '/users'
   id:
     | '__root__'
@@ -159,10 +181,12 @@ export interface FileRouteTypes {
     | '/_authenticated/calls'
     | '/_authenticated/dashboard'
     | '/_authenticated/leads'
+    | '/_authenticated/messages'
     | '/_authenticated/my-calls'
     | '/_authenticated/my-leads'
     | '/_authenticated/reports'
     | '/_authenticated/settings'
+    | '/_authenticated/surveys'
     | '/_authenticated/users'
   fileRoutesById: FileRoutesById
 }
@@ -202,6 +226,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/surveys': {
+      id: '/_authenticated/surveys'
+      path: '/surveys'
+      fullPath: '/surveys'
+      preLoaderRoute: typeof AuthenticatedSurveysRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -228,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/my-calls'
       fullPath: '/my-calls'
       preLoaderRoute: typeof AuthenticatedMyCallsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/messages': {
+      id: '/_authenticated/messages'
+      path: '/messages'
+      fullPath: '/messages'
+      preLoaderRoute: typeof AuthenticatedMessagesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/leads': {
@@ -266,10 +304,12 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCallsRoute: typeof AuthenticatedCallsRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedLeadsRoute: typeof AuthenticatedLeadsRoute
+  AuthenticatedMessagesRoute: typeof AuthenticatedMessagesRoute
   AuthenticatedMyCallsRoute: typeof AuthenticatedMyCallsRoute
   AuthenticatedMyLeadsRoute: typeof AuthenticatedMyLeadsRoute
   AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedSurveysRoute: typeof AuthenticatedSurveysRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
 }
 
@@ -278,10 +318,12 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCallsRoute: AuthenticatedCallsRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedLeadsRoute: AuthenticatedLeadsRoute,
+  AuthenticatedMessagesRoute: AuthenticatedMessagesRoute,
   AuthenticatedMyCallsRoute: AuthenticatedMyCallsRoute,
   AuthenticatedMyLeadsRoute: AuthenticatedMyLeadsRoute,
   AuthenticatedReportsRoute: AuthenticatedReportsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedSurveysRoute: AuthenticatedSurveysRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
 }
 
@@ -299,11 +341,10 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
+import type { createStart } from '@tanstack/react-start'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

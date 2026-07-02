@@ -1,117 +1,54 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-  type User as FbUser,
-} from "firebase/auth";
-import { auth } from "./firebase";
-import { store } from "./mock-store";
-import type { AppUser, Role } from "./types";
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { auth } from './firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { getUser, login as firebaseLogin, logout as firebaseLogout } from './firebase-service';
+import type { AppUser } from './types';
 
-interface AuthContextValue {
+interface AuthContextType {
   user: AppUser | null;
-  fbUser: FbUser | null;
   loading: boolean;
-  isDemo: boolean;
-  loginDemo: (userId: string) => void;
-  loginEmail: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  hasRole: (...roles: Role[]) => boolean;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
-const DEMO_KEY = "crm-demo-user-id";
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
-  const [fbUser, setFbUser] = useState<FbUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
 
   useEffect(() => {
-    // Try to restore demo session immediately
-    if (typeof window !== "undefined") {
-      const demoId = localStorage.getItem(DEMO_KEY);
-      if (demoId) {
-        const u = store.getUser(demoId);
-        if (u) {
-          setUser(u);
-          setIsDemo(true);
-          setLoading(false);
-          return;
-        }
-      }
-    }
-
-    const unsub = onAuthStateChanged(auth, (fb) => {
-      setFbUser(fb);
-      if (fb) {
-        let appUser = store.getUser(fb.uid);
-        if (!appUser) {
-          appUser = {
-            id: fb.uid,
-            fullName: fb.displayName || fb.email || "User",
-            email: fb.email || "",
-            role: "super_admin",
-            status: "active",
-            createdAt: Date.now(),
-            lastLogin: Date.now(),
-          };
-          store.upsertUser(appUser);
-        }
-        setUser(appUser);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        const userData = await getUser(firebaseUser.uid);
+        setUser(userData);
       } else {
         setUser(null);
       }
       setLoading(false);
     });
-    return () => unsub();
+    return unsubscribe;
   }, []);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      fbUser,
-      loading,
-      isDemo,
-      loginDemo: (id) => {
-        const u = store.getUser(id);
-        if (!u) return;
-        localStorage.setItem(DEMO_KEY, id);
-        setUser(u);
-        setIsDemo(true);
-        store.log(u.id, u.fullName, "Logged in (demo)");
-      },
-      loginEmail: async (email, password) => {
-        await signInWithEmailAndPassword(auth, email, password);
-      },
-      logout: async () => {
-        if (isDemo) {
-          localStorage.removeItem(DEMO_KEY);
-          setUser(null);
-          setIsDemo(false);
-          return;
-        }
-        await signOut(auth);
-      },
-      hasRole: (...roles) => !!user && roles.includes(user.role),
-    }),
-    [user, fbUser, loading, isDemo],
-  );
+  const login = async (email: string, password: string) => {
+    const userData = await firebaseLogin(email, password);
+    setUser(userData);
+  };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const logout = async () => {
+    await firebaseLogout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
 }

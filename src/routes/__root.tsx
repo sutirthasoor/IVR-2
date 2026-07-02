@@ -7,6 +7,8 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { AuthProvider } from "../lib/auth-context";
+import { FirebaseDataProvider } from "../lib/firebase-context";
 
 import appCss from "../styles.css?url";
 
@@ -72,14 +74,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Call Hub Pro" },  // ✅ Changed from "Lovable App" to "Call Hub Pro"
+      { name: "description", content: "Call Hub Pro - Call Center Management Platform" },
+      { name: "author", content: "Systems Solutions" },
+      { property: "og:title", content: "Call Hub Pro" },
+      { property: "og:description", content: "Call Hub Pro - Complete Call Center Management" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@Systems Solutions" },
     ],
     links: [
       {
@@ -113,7 +115,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <AuthProvider>
+        <FirebaseDataProvider>
+          <Outlet />
+        </FirebaseDataProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

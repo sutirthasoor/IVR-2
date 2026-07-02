@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { store, useStoreVersion } from "@/lib/mock-store";
 import { agentMetrics, fmtDuration, visibleAgents, visibleCalls, visibleLeads } from "@/lib/perf";
 import { format, subDays, startOfDay } from "date-fns";
+import type { Lead, CallRecord } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
@@ -32,12 +33,34 @@ const COLORS = ["hsl(var(--primary))", "#10b981", "#f59e0b", "#ef4444", "#6366f1
 function Dashboard() {
   useStoreVersion();
   const { user } = useAuth();
-  if (!user) return null;
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const leads = visibleLeads(user);
-  const calls = visibleCalls(user);
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [leadsData, callsData] = await Promise.all([
+          visibleLeads(user),
+          visibleCalls(user)
+        ]);
+        setLeads(leadsData as Lead[]);
+        setCalls(callsData as CallRecord[]);
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]);
 
   const last7 = useMemo(() => {
+    if (!calls.length) return [];
     return Array.from({ length: 7 }).map((_, i) => {
       const d = subDays(new Date(), 6 - i);
       const start = startOfDay(d).getTime();
@@ -47,15 +70,21 @@ function Dashboard() {
     });
   }, [calls]);
 
-  const leadsByStatus = ["new", "contacted", "proposal", "won", "lost"].map((s) => ({
-    status: s,
-    count: leads.filter((l) => l.status === s).length,
-  }));
+  const leadsByStatus = useMemo(() => {
+    if (!leads.length) return [];
+    return ["new", "contacted", "proposal", "won", "lost"].map((s) => ({
+      status: s,
+      count: leads.filter((l) => l.status === s).length,
+    }));
+  }, [leads]);
 
-  const callOutcomes = ["answered", "voicemail", "no_answer", "busy"].map((s) => ({
-    name: s,
-    value: calls.filter((c) => c.status === s).length,
-  }));
+  const callOutcomes = useMemo(() => {
+    if (!calls.length) return [];
+    return ["answered", "voicemail", "no_answer", "busy"].map((s) => ({
+      name: s,
+      value: calls.filter((c) => c.status === s).length,
+    }));
+  }, [calls]);
 
   const totalCalls = calls.length;
   const answered = calls.filter((c) => c.status === "answered").length;
@@ -66,6 +95,19 @@ function Dashboard() {
     : 0;
 
   const recent = [...calls].sort((a, b) => b.startTime - a.startTime).slice(0, 10);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg font-semibold">Loading Dashboard...</div>
+          <p className="text-sm text-muted-foreground mt-2">Fetching your data from Firebase</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return null;
 
   return (
     <div className="space-y-6">
@@ -93,15 +135,21 @@ function Dashboard() {
             <CardTitle>Leads by status</CardTitle>
           </CardHeader>
           <CardContent className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={leadsByStatus}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="status" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="count" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {leadsByStatus.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={leadsByStatus}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="status" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                No lead data available
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -110,20 +158,26 @@ function Dashboard() {
             <CardTitle>Calls per day (last 7 days)</CardTitle>
           </CardHeader>
           <CardContent className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={last7}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="day" />
-                <YAxis />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="calls"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {last7.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={last7}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="day" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="calls"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                No call data available
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -134,16 +188,22 @@ function Dashboard() {
             <CardTitle>Call outcomes</CardTitle>
           </CardHeader>
           <CardContent className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={callOutcomes} dataKey="value" nameKey="name" outerRadius={90} label>
-                  {callOutcomes.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            {callOutcomes.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={callOutcomes} dataKey="value" nameKey="name" outerRadius={90} label>
+                    {callOutcomes.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                No call outcome data
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -197,9 +257,16 @@ function Kpi({ title, value, hint }: { title: string; value: any; hint?: string 
 }
 
 function AgentTasks({ userId }: { userId: string }) {
-  const tasks = store
-    .listTasks()
-    .filter((t) => t.assignedTo === userId && t.status === "pending");
+  const [tasks, setTasks] = useState<any[]>([]);
+  
+  useEffect(() => {
+    const loadTasks = async () => {
+      const allTasks = await store.listTasks();
+      setTasks(allTasks.filter((t: any) => t.assignedTo === userId && t.status === "pending"));
+    };
+    loadTasks();
+  }, [userId]);
+
   return (
     <Card>
       <CardHeader>
@@ -237,7 +304,10 @@ function AgentTasks({ userId }: { userId: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => store.upsertTask({ ...t, status: "completed", completedAt: Date.now() })}
+                onClick={async () => {
+                  await store.upsertTask({ ...t, status: "completed", completedAt: Date.now() });
+                  setTasks(prev => prev.filter(task => task.id !== t.id));
+                }}
               >
                 Done
               </Button>
@@ -251,11 +321,26 @@ function AgentTasks({ userId }: { userId: string }) {
 
 function Leaderboard({ viewerId, role }: { viewerId: string; role: string }) {
   const { user } = useAuth();
-  const agents = visibleAgents(user);
-  const ranked = agents
-    .map((a) => ({ a, m: agentMetrics(a.id) }))
-    .sort((x, y) => y.m.conversion - x.m.conversion)
-    .slice(0, 10);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [ranked, setRanked] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadAgents = async () => {
+      if (!user) return;
+      const agentsList = await visibleAgents(user);
+      setAgents(agentsList);
+      
+      const rankedList = await Promise.all(
+        agentsList.map(async (a: any) => ({ 
+          a, 
+          m: await agentMetrics(a.id) 
+        }))
+      );
+      setRanked(rankedList.sort((x, y) => y.m.conversion - x.m.conversion).slice(0, 10));
+    };
+    loadAgents();
+  }, [user]);
+
   return (
     <Card>
       <CardHeader>

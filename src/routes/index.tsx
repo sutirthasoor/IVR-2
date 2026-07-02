@@ -29,10 +29,7 @@ function Landing() {
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold">
-            L
-          </div>
-          <span className="font-semibold">Luxe CRM</span>
+          <span className="font-semibold">Call CRM</span>
         </div>
         <Button asChild>
           <Link to="/login">
@@ -53,7 +50,7 @@ function Landing() {
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <Button asChild size="lg">
-            <Link to="/login">Try the demo</Link>
+            <Link to="/login">Sign In</Link>
           </Button>
           <Button asChild size="lg" variant="outline">
             <Link to="/dashboard">Open dashboard</Link>

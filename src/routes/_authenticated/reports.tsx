@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { visibleAgents, visibleCalls, visibleLeads, agentMetrics, fmtDuration } from "@/lib/perf";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,17 +29,61 @@ export const Route = createFileRoute("/_authenticated/reports")({
 function ReportsPage() {
   const { user } = useAuth();
   const [type, setType] = useState("agent");
+  const [agents, setAgents] = useState<any[]>([]);
+  const [leads, setLeads] = useState<any[]>([]);
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [agentMetricsMap, setAgentMetricsMap] = useState<Map<string, any>>(new Map());
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [agentsData, leadsData, callsData] = await Promise.all([
+          visibleAgents(user),
+          visibleLeads(user),
+          visibleCalls(user)
+        ]);
+        
+        setAgents(agentsData);
+        setLeads(leadsData);
+        setCalls(callsData);
+        
+        // Load metrics for all agents
+        const metricsMap = new Map();
+        for (const agent of agentsData) {
+          const metrics = await agentMetrics(agent.id);
+          metricsMap.set(agent.id, metrics);
+        }
+        setAgentMetricsMap(metricsMap);
+      } catch (error) {
+        console.error('Error loading reports data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]);
+
   if (!user) return null;
-  const agents = visibleAgents(user);
-  const leads = visibleLeads(user);
-  const calls = visibleCalls(user);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Loading reports...</p>
+      </div>
+    );
+  }
 
   const reports: Record<string, { title: string; rows: any[]; cols: string[] }> = {
     agent: {
       title: "Agent Performance",
       cols: ["Agent", "Leads", "Calls (30d)", "Conversion", "Avg duration", "Answer rate"],
       rows: agents.map((a) => {
-        const m = agentMetrics(a.id);
+        const m = agentMetricsMap.get(a.id) || { leadsAssigned: 0, calls30d: 0, conversion: 0, avgDuration: 0, answerRate: 0 };
         return [a.fullName, m.leadsAssigned, m.calls30d, `${m.conversion}%`, fmtDuration(m.avgDuration), `${m.answerRate}%`];
       }),
     },
@@ -63,7 +107,7 @@ function ReportsPage() {
       title: "Daily Activity",
       cols: ["Agent", "Calls today", "Status"],
       rows: agents.map((a) => {
-        const m = agentMetrics(a.id);
+        const m = agentMetricsMap.get(a.id) || { callsToday: 0 };
         return [a.fullName, m.callsToday, a.status];
       }),
     },
@@ -79,6 +123,7 @@ function ReportsPage() {
     a.href = url;
     a.download = `${type}-report.csv`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   const exportPdf = () => {
@@ -148,6 +193,13 @@ function ReportsPage() {
                   ))}
                 </TableRow>
               ))}
+              {r.rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={r.cols.length} className="text-center text-muted-foreground">
+                    No data available
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
