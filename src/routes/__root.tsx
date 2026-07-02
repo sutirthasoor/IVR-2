@@ -74,11 +74,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Call Hub Pro" },  // ✅ Changed from "Lovable App" to "Call Hub Pro"
-      { name: "description", content: "Call Hub Pro - Call Center Management Platform" },
+      { title: "IVR Admin" },
+      { name: "description", content: "IVR Admin" },
       { name: "author", content: "Systems Solutions" },
       { property: "og:title", content: "Call Hub Pro" },
-      { property: "og:description", content: "Call Hub Pro - Complete Call Center Management" },
+      { property: "og:description", content: "IVR Admin" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Systems Solutions" },

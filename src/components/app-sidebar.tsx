@@ -71,7 +71,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1">
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-semibold">Call Hub Pro</span>
+            <span className="text-sm font-semibold">IVR Admin</span>
             <span className="text-xs text-muted-foreground capitalize">
               {user.role.replace("_", " ")}
             </span>
